@@ -69,6 +69,14 @@ window.onload = function() {
     requestAnimationFrame(update);
     setInterval(placePipes, 1500); //every 1.5 seconds
     document.addEventListener("keydown", moveBird);
+
+    // Add touch support for mobile
+    board.addEventListener("touchstart", function(e) {
+        // Prevent scrolling
+        e.preventDefault();
+        // Simulate a "jump"
+        moveBird({ code: "Space" });
+    }, { passive: false });
 }
 
 function update() {
@@ -153,8 +161,11 @@ function placePipes() {
 }
 
 function moveBird(e) {
-    if (e.code == "Space" || e.code == "ArrowUp" || e.code == "KeyX") {
-
+    // Support both keyboard and touch events
+    if (
+        (e.code == "Space" || e.code == "ArrowUp" || e.code == "KeyX") ||
+        (e.type === "touchstart")
+    ) {
         wingSound.play();
         //jump
         velocityY = -6;
