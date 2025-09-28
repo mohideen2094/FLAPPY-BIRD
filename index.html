@@ -1,33 +1,220 @@
-<!DOCTYPE html>
-<html>
-
+<!doctype html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Flappy Bird</title>
-    <link rel="stylesheet" href="flappybird.css">
-    <script src="flappybird.js"></script>
-    <style>
-        body {
-            margin: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background: #70c5ce;
-        }
+  <meta charset="utf-8" />
+  <title>Flappy Bird — Mobile</title>
 
-        canvas {
-            width: 100vw;
-            height: 100vh;
-            max-width: 360px;
-            max-height: 640px;
-        }
-    </style>
+  <!-- Mobile: scale correctly, prevent zoom -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
 
+  <style>
+    :root { --sky:#70c5ce; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--sky);
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;                 /* no scroll bounce on iOS */
+      -webkit-user-select: none; user-select: none;
+      -webkit-touch-callout: none;
+      touch-action: manipulation;       /* improves tap latency */
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+    }
+    /* Responsive canvas: keep game logic at 360x640, scale visually */
+    #board {
+      width: min(100vw, 420px);         /* fit small phones, look nice on big */
+      height: auto;                     /* keeps the 360x640 ratio from canvas pixels */
+      max-height: 100svh;               /* safe viewport height on mobile */
+      border-radius: 16px;
+      box-shadow: 0 30px 60px #0003, inset 0 0 0 1px #0002;
+      background: #8bdcf0;
+      image-rendering: pixelated;
+    }
+    .hud {
+      position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
+      background: #ffffffcc; padding: 6px 12px; border-radius: 999px;
+      font-weight: 700; box-shadow: 0 10px 30px #0002;
+    }
+  </style>
 </head>
-
 <body>
-    <canvas id="board"></canvas>
-</body>
+  <div class="hud">Tap / Click / Press Space to flap</div>
+  <canvas id="board" width="360" height="640"></canvas>
 
+  <script>
+    // ------- your working game logic (with mobile tweaks) -------
+    // board
+    let board;
+    let boardWidth = 360;
+    let boardHeight = 640;
+    let context;
+
+    // bird
+    let birdWidth = 80;
+    let birdHeight = 80;
+    let birdX = boardWidth/8;
+    let birdY = boardHeight/2;
+    let birdImg;
+
+    let bird = { x: birdX, y: birdY, width: birdWidth, height: birdHeight };
+
+    // pipes
+    let pipeArray = [];
+    let pipeWidth = 64;
+    let pipeHeight = 512;
+    let pipeX = boardWidth;
+    let pipeY = 0;
+
+    let topPipeImg;
+    let bottomPipeImg;
+
+    // physics
+    let velocityX = -2;     // pipes left speed
+    let velocityY = 0;      // bird vertical speed
+    let gravity = 0.4;
+
+    let gameOver = false;
+    let score = 0;
+
+    // sounds (keep these files next to index.html)
+    const wingSound    = new Audio("./wingsound.mp3");
+    const scoreSound   = new Audio("./sfx_point.wav");
+    const gameOverSound= new Audio("./gameover.mp3");
+
+    // Small helper: on iOS/Android, audio only plays after first user tap.
+    function unlockAudioOnce() {
+      const playSilent = () => {
+        // try to play a tiny sound to unlock; if it fails silently, it's fine
+        wingSound.play().catch(()=>{});
+        window.removeEventListener("pointerdown", playSilent);
+        window.removeEventListener("touchstart", playSilent, {passive:false});
+      };
+      window.addEventListener("pointerdown", playSilent, {once:true});
+      window.addEventListener("touchstart", playSilent, {once:true, passive:false});
+    }
+
+    window.onload = function () {
+      board = document.getElementById("board");
+      board.width = boardWidth;
+      board.height = boardHeight;
+      context = board.getContext("2d");
+
+      // images
+      birdImg = new Image();
+      birdImg.src = "./maalika.png";
+      birdImg.onload = function() {
+        context.drawImage(birdImg, bird.x, bird.y, bird.width, bird.height);
+      };
+
+      topPipeImg = new Image();
+      topPipeImg.src = "./toppipe.png";
+
+      bottomPipeImg = new Image();
+      bottomPipeImg.src = "./bottompipe.png";
+
+      // game loop + spawner
+      requestAnimationFrame(update);
+      setInterval(placePipes, 1500);
+
+      // inputs
+      document.addEventListener("keydown", moveBird);
+      // mobile taps
+      board.addEventListener("touchstart", function(e){
+        e.preventDefault();             // stop page scroll
+        moveBird({ code: "Space", type: "touchstart" });
+      }, { passive: false });
+      // also allow desktop/mouse taps
+      board.addEventListener("pointerdown", () => moveBird({ code: "Space" }));
+
+      unlockAudioOnce();
+    };
+
+    function update() {
+      requestAnimationFrame(update);
+      if (gameOver) { gameOverSound.play().catch(()=>{}); return; }
+
+      context.clearRect(0, 0, board.width, board.height);
+
+      // bird
+      velocityY += gravity;
+      bird.y = Math.max(bird.y + velocityY, 0);
+      context.drawImage(birdImg, bird.x, bird.y, bird.width, bird.height);
+
+      if (bird.y > board.height) { gameOver = true; }
+
+      // pipes
+      for (let i = 0; i < pipeArray.length; i++) {
+        let pipe = pipeArray[i];
+        pipe.x += velocityX;
+        context.drawImage(pipe.img, pipe.x, pipe.y, pipe.width, pipe.height);
+
+        if (!pipe.passed && bird.x > pipe.x + pipe.width) {
+          score += 0.5;  // two pipes per set → 0.5 + 0.5 = 1
+          pipe.passed = true;
+          if (Number.isInteger(score)) scoreSound.play().catch(()=>{});
+        }
+
+        if (detectCollision(bird, pipe)) { gameOver = true; }
+      }
+
+      // remove offscreen pipes
+      while (pipeArray.length > 0 && pipeArray[0].x < -pipeWidth) pipeArray.shift();
+
+      // score
+      context.fillStyle = "white";
+      context.font = "45px sans-serif";
+      context.fillText(score, 5, 45);
+
+      if (gameOver) context.fillText("GAME OVER", 5, 90);
+    }
+
+    function placePipes() {
+      if (gameOver) return;
+
+      // random vertical offset
+      let randomPipeY = pipeY - pipeHeight/4 - Math.random()*(pipeHeight/2);
+      let openingSpace = board.height/2;
+
+      let topPipe = {
+        img: topPipeImg,
+        x: pipeX, y: randomPipeY,
+        width: pipeWidth, height: pipeHeight,
+        passed: false
+      };
+      pipeArray.push(topPipe);
+
+      let bottomPipe = {
+        img: bottomPipeImg,
+        x: pipeX, y: randomPipeY + pipeHeight + openingSpace,
+        width: pipeWidth, height: pipeHeight,
+        passed: false
+      };
+      pipeArray.push(bottomPipe);
+    }
+
+    function moveBird(e) {
+      if ((e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyX") || (e.type === "touchstart")) {
+        wingSound.play().catch(()=>{});
+        velocityY = -6;   // jump
+
+        if (gameOver) {
+          // reset
+          bird.y = birdY;
+          pipeArray = [];
+          score = 0;
+          gameOver = false;
+          velocityY = 0;
+        }
+      }
+    }
+
+    function detectCollision(a, b) {
+      return a.x < b.x + b.width &&
+             a.x + a.width > b.x &&
+             a.y < b.y + b.height &&
+             a.y + a.height > b.y;
+    }
+  </script>
+</body>
 </html>
